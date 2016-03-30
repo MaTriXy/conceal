@@ -22,12 +22,15 @@ import java.lang.ArrayIndexOutOfBoundsException;
  */
 public class NativeGCMCipherOutputStream extends OutputStream {
 
-  private static final int UPDATE_BUFFER_SIZE = 256;
+  private static final int DEFAULT_ENCRYPT_BUFFER_SIZE = 256;
 
   private final OutputStream mCipherDelegate;
   private final NativeGCMCipher mCipher;
+  private final int mUpdateBufferChunkSize;
   private final byte[] mUpdateBuffer;
   private final byte[] mTag = new byte[NativeGCMCipher.TAG_LENGTH];
+
+  private boolean mTagAppended = false;
 
   /**
    * Creates a new output stream to write to.
@@ -35,24 +38,47 @@ public class NativeGCMCipherOutputStream extends OutputStream {
    * @param cipherDelegate The stream to write encrypted bytes to.
    * @param cipher The cipher used to encrypt the bytes.
    */
-  public NativeGCMCipherOutputStream(OutputStream cipherDelegate,
-      NativeGCMCipher cipher) {
+  public NativeGCMCipherOutputStream(
+          OutputStream cipherDelegate,
+          NativeGCMCipher cipher,
+          byte[] encryptBuffer) {
     mCipherDelegate = cipherDelegate;
     mCipher = cipher;
-    mUpdateBuffer = new byte[UPDATE_BUFFER_SIZE + mCipher.getCipherBlockSize()];
+
+    // use encryptBuffer or create a new one
+    int cipherBlockSize = mCipher.getCipherBlockSize();
+    if (encryptBuffer == null) {
+      encryptBuffer = new byte[DEFAULT_ENCRYPT_BUFFER_SIZE + cipherBlockSize];
+    } else {
+      int minSize = cipherBlockSize + 1;
+      if (encryptBuffer.length < minSize) {
+        throw new IllegalArgumentException("encryptBuffer cannot be smaller than " + minSize + "B");
+      }
+    }
+    // if no encryptBuffer provided it will be DEFAULT_ENCRYPT_BUFFER_SIZE
+    mUpdateBufferChunkSize = encryptBuffer.length - cipherBlockSize;
+    mUpdateBuffer = encryptBuffer;
   }
 
   @Override
   public void close() throws IOException {
     try {
+      appendTag();
+    } finally {
+      mCipherDelegate.close();
+    }
+  }
+
+  private void appendTag() throws IOException {
+    if (mTagAppended) {
+      return;
+    }
+    mTagAppended = true;
+    try {
       mCipher.encryptFinal(mTag, mTag.length);
       mCipherDelegate.write(mTag);
     } finally {
-      try {
-        mCipher.destroy();
-      } finally {
-        mCipherDelegate.close();
-      }
+      mCipher.destroy();
     }
   }
 
@@ -73,17 +99,17 @@ public class NativeGCMCipherOutputStream extends OutputStream {
       throw new ArrayIndexOutOfBoundsException(offset + count);
     }
 
-    int times = count / UPDATE_BUFFER_SIZE;
-    int remainder = count % UPDATE_BUFFER_SIZE;
+    int times = count / mUpdateBufferChunkSize;
+    int remainder = count % mUpdateBufferChunkSize;
 
     for (int i = 0; i < times; ++i) {
-      int written = mCipher.update(buffer, offset, UPDATE_BUFFER_SIZE, mUpdateBuffer);
+      int written = mCipher.update(buffer, offset, mUpdateBufferChunkSize, mUpdateBuffer, 0);
       mCipherDelegate.write(mUpdateBuffer, 0, written);
-      offset += UPDATE_BUFFER_SIZE;
+      offset += mUpdateBufferChunkSize;
     }
 
     if (remainder > 0) {
-      int written = mCipher.update(buffer, offset, remainder, mUpdateBuffer);
+      int written = mCipher.update(buffer, offset, remainder, mUpdateBuffer, 0);
       mCipherDelegate.write(mUpdateBuffer, 0, written);
     }
   }

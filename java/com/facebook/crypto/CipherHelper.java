@@ -10,6 +10,7 @@ import com.facebook.crypto.streams.NativeGCMCipherOutputStream;
 import com.facebook.crypto.util.Assertions;
 import com.facebook.crypto.util.NativeCryptoLibrary;
 
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -27,10 +28,10 @@ import java.io.OutputStream;
     mNativeCryptoLibrary = nativeCryptoLibrary;
   }
 
-  public OutputStream getCipherOutputStream(OutputStream cipherStream, Entity entity)
+  public OutputStream getCipherOutputStream(OutputStream cipherStream, Entity entity, byte[] encryptBuffer)
     throws KeyChainException, CryptoInitializationException, IOException {
 
-    cipherStream.write(VersionCodes.CIPHER_SERALIZATION_VERSION);
+    cipherStream.write(VersionCodes.CIPHER_SERIALIZATION_VERSION);
     cipherStream.write(VersionCodes.CIPHER_ID);
 
     byte[] iv = mKeyChain.getNewIV();
@@ -39,8 +40,8 @@ import java.io.OutputStream;
     cipherStream.write(iv);
 
     byte[] entityBytes = entity.getBytes();
-    computeCipherAad(gcmCipher, VersionCodes.CIPHER_SERALIZATION_VERSION, VersionCodes.CIPHER_ID, entityBytes);
-    return new NativeGCMCipherOutputStream(cipherStream, gcmCipher);
+    computeCipherAad(gcmCipher, VersionCodes.CIPHER_SERIALIZATION_VERSION, VersionCodes.CIPHER_ID, entityBytes);
+    return new NativeGCMCipherOutputStream(cipherStream, gcmCipher, encryptBuffer);
   }
 
   /**
@@ -49,17 +50,15 @@ import java.io.OutputStream;
   public InputStream getCipherInputStream(InputStream cipherStream, Entity entity, byte cryptoVersion, byte cipherID)
     throws IOException, KeyChainException, CryptoInitializationException {
 
-    Assertions.checkArgumentForIO(cryptoVersion == VersionCodes.CIPHER_SERALIZATION_VERSION,
+    Assertions.checkArgumentForIO(cryptoVersion == VersionCodes.CIPHER_SERIALIZATION_VERSION,
       "Unexpected crypto version " + cryptoVersion);
 
     Assertions.checkArgumentForIO(cipherID == VersionCodes.CIPHER_ID,
       "Unexpected cipher ID " + cipherID);
 
     byte[] iv = new byte[NativeGCMCipher.IV_LENGTH];
-    int read = cipherStream.read(iv);
-    if (read != iv.length) {
-      throw new IOException("Not enough bytes for iv: " + read);
-    }
+    // if iv is not fully read EOFException will be thrown
+    new DataInputStream(cipherStream).readFully(iv);
 
     NativeGCMCipher gcmCipher = new NativeGCMCipher(mNativeCryptoLibrary);
     gcmCipher.decryptInit(mKeyChain.getCipherKey(), iv);

@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Arrays;
+import java.util.Random;
 
 import com.facebook.crypto.cipher.NativeGCMCipher;
 import com.facebook.crypto.cipher.NativeGCMCipherException;
@@ -52,6 +53,9 @@ public class NativeGCMCipherInputStreamTest extends InstrumentationTestCase {
 
     // Encrypt some data before each test.
     mData = new byte[CryptoTestUtils.NUM_DATA_BYTES];
+    Random random = new Random();
+    random.nextBytes(mData);
+
     ByteArrayOutputStream cipherOutputStream = new ByteArrayOutputStream();
 
     OutputStream outputStream = mCrypto.getCipherOutputStream(
@@ -148,6 +152,25 @@ public class NativeGCMCipherInputStreamTest extends InstrumentationTestCase {
     assertTrue(CryptoTestUtils.DECRYPTED_DATA_IS_DIFFERENT, Arrays.equals(mData, decryptedData));
   }
 
+  public void testDecryptAndSkipValidData() throws Exception {
+    InputStream inputStream = mCrypto.getCipherInputStream(
+        mCipherInputStream,
+        new Entity(CryptoTestUtils.ENTITY_NAME));
+    int partSize = CryptoTestUtils.NUM_DATA_BYTES / 4;
+    byte[] firstPart = new byte[partSize];
+    ByteStreams.readFully(inputStream, firstPart);
+    long skipped = inputStream.skip(partSize);
+    byte[] decryptedData = ByteStreams.toByteArray(inputStream);
+    inputStream.close();
+    assertTrue(
+        CryptoTestUtils.DECRYPTED_DATA_IS_DIFFERENT,
+        Arrays.equals(Arrays.copyOfRange(mData, 0, partSize), firstPart));
+    assertEquals(skipped, partSize);
+    assertTrue(
+        CryptoTestUtils.DECRYPTED_DATA_IS_DIFFERENT,
+        Arrays.equals(Arrays.copyOfRange(mData, partSize*2, mData.length), decryptedData));
+  }
+
   public void testDecryptValidDataInSmallIncrements() throws Exception {
     InputStream inputStream = mCrypto.getCipherInputStream(
         mCipherInputStream,
@@ -201,7 +224,7 @@ public class NativeGCMCipherInputStreamTest extends InstrumentationTestCase {
   public void testCompatibleWithBouncyCastle() throws Exception {
     Entity entity = new Entity(CryptoTestUtils.ENTITY_NAME);
     byte[] aadData = CryptoSerializerHelper.computeBytesToAuthenticate(entity.getBytes(),
-        VersionCodes.CIPHER_SERALIZATION_VERSION,
+        VersionCodes.CIPHER_SERIALIZATION_VERSION,
         VersionCodes.CIPHER_ID);
     BouncyCastleHelper.Result result = BouncyCastleHelper.bouncyCastleEncrypt(mData,
         mKey,
@@ -216,5 +239,19 @@ public class NativeGCMCipherInputStreamTest extends InstrumentationTestCase {
     byte[] decryptedData = ByteStreams.toByteArray(inputStream);
     inputStream.close();
     assertTrue(CryptoTestUtils.DECRYPTED_DATA_IS_DIFFERENT, Arrays.equals(mData, decryptedData));
+  }
+
+  public void testCloseMultipleTimes() throws Exception {
+    InputStream inputStream = mCrypto.getCipherInputStream(
+        mCipherInputStream,
+        new Entity(CryptoTestUtils.ENTITY_NAME));
+    ByteStreams.toByteArray(inputStream);
+    inputStream.close();
+    try {
+      inputStream.close();
+      inputStream.close();
+    } catch (Exception e) {
+      fail("Multiple closes exception!");
+    }
   }
 }

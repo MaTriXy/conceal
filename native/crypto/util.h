@@ -1,5 +1,5 @@
-#ifndef _JAVA_COM_FACEBOOK_CRYPTO_UTIL_
-#define _JAVA_COM_FACEBOOK_CRYPTO_UTIL_
+#ifndef HEADER_JAVA_COM_FACEBOOK_CRYPTO_UTIL_H
+#define HEADER_JAVA_COM_FACEBOOK_CRYPTO_UTIL_H
 
 #include <jni.h>
 
@@ -8,9 +8,8 @@ extern const int CRYPTO_FAILURE;
 
 extern const int CRYPTO_NO_BYTES_WRITTEN;
 
-jint Get_JNI_CTX(JNIEnv* env, jobject obj, jfieldID fieldId);
-
-void Set_JNI_CTX(JNIEnv* env, jobject obj, jfieldID fieldId, jint ctx);
+jlong Get_JNI_CTX(JNIEnv* env, jobject obj, jfieldID fieldId);
+void Set_JNI_CTX(JNIEnv* env, jobject obj, jfieldID fieldId, jlong ctx);
 
 #endif // _JAVA_COM_FACEBOOK_CRYPTO_UTIL_
 

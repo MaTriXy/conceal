@@ -10,10 +10,10 @@
 
 package com.facebook.crypto.streams;
 
+import com.facebook.crypto.cipher.NativeGCMCipher;
+
 import java.io.IOException;
 import java.io.InputStream;
-
-import com.facebook.crypto.cipher.NativeGCMCipher;
 
 /**
  * This class is used to encapsulate decryption using GCM. On reads, bytes are first read from the
@@ -21,12 +21,12 @@ import com.facebook.crypto.cipher.NativeGCMCipher;
  */
 public class NativeGCMCipherInputStream extends InputStream {
 
-  private static final int UPDATE_BUFFER_SIZE = 256;
+  private static final int SKIP_BUFFER_SIZE = 256;
 
   private final TailInputStream mCipherDelegate;
   private final NativeGCMCipher mCipher;
 
-  private final byte[] mUpdateBuffer;
+  private byte[] mSkipBuffer;
 
   private boolean mTagChecked = false;
 
@@ -39,7 +39,6 @@ public class NativeGCMCipherInputStream extends InputStream {
   public NativeGCMCipherInputStream(InputStream cipherDelegate, NativeGCMCipher cipher) {
     mCipherDelegate = new TailInputStream(cipherDelegate, NativeGCMCipher.TAG_LENGTH);
     mCipher = cipher;
-    mUpdateBuffer = new byte[UPDATE_BUFFER_SIZE + mCipher.getCipherBlockSize()];
   }
 
   @Override
@@ -92,26 +91,9 @@ public class NativeGCMCipherInputStream extends InputStream {
       return -1;
     }
 
-    int times = read / UPDATE_BUFFER_SIZE;
-    int remainder = read % UPDATE_BUFFER_SIZE;
+    read = mCipher.update(buffer, offset, read, buffer, offset);
 
-    int originalOffset = offset;
-    int currentReadOffset = offset;
-
-    for (int i = 0; i < times; ++i) {
-      int bytesDecrypted = mCipher.update(buffer, offset, UPDATE_BUFFER_SIZE, mUpdateBuffer);
-      System.arraycopy(mUpdateBuffer, 0, buffer, currentReadOffset, bytesDecrypted);
-      currentReadOffset += bytesDecrypted;
-      offset += UPDATE_BUFFER_SIZE;
-    }
-
-    if (remainder > 0) {
-      int bytesDecrypted = mCipher.update(buffer, offset, remainder, mUpdateBuffer);
-      System.arraycopy(mUpdateBuffer, 0, buffer, currentReadOffset, bytesDecrypted);
-      currentReadOffset += bytesDecrypted;
-    }
-
-    return currentReadOffset - originalOffset;
+    return read;
   }
 
   private void ensureTagValid() throws IOException {
@@ -136,6 +118,25 @@ public class NativeGCMCipherInputStream extends InputStream {
 
   @Override
   public long skip(long byteCount) throws IOException {
-    throw new UnsupportedOperationException();
+    if (mSkipBuffer == null) {
+      mSkipBuffer = new byte[SKIP_BUFFER_SIZE];
+    }
+    // implements skip through reading
+    // decryption needs to process all the data anyway
+    // only marginal optimization would be avoiding jni to copy back plain bytes
+    // but that's only a problem for android that copies bytes instead of sharing
+    long skipped = 0;
+
+    while (byteCount > 0) {
+      int chunk = (int) Math.min(byteCount, SKIP_BUFFER_SIZE);
+      int read = read(mSkipBuffer, 0, chunk);
+      if (read < 0) {
+        break;
+      }
+      skipped += read;
+      byteCount -= read;
+    }
+    // if it didn't skip anything it's EOF
+    return skipped == 0 ? -1 : skipped;
   }
 }
