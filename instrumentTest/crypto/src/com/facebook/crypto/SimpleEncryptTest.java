@@ -3,6 +3,8 @@ package com.facebook.crypto;
 import android.annotation.TargetApi;
 import android.os.Build;
 import android.test.InstrumentationTestCase;
+
+import com.facebook.android.crypto.keychain.AndroidConceal;
 import com.facebook.crypto.exception.CryptoInitializationException;
 import com.facebook.crypto.exception.KeyChainException;
 import com.facebook.crypto.keychain.KeyChain;
@@ -25,11 +27,10 @@ public class SimpleEncryptTest extends InstrumentationTestCase {
 
   protected void setUp() throws Exception {
     super.setUp();
-    mNativeCryptoLibrary = new SystemNativeCryptoLibrary();
     KeyChain keyChain = new FakeKeyChain();
     mKey = keyChain.getCipherKey();
     mIV = keyChain.getNewIV();
-    mCrypto = new Crypto(keyChain, mNativeCryptoLibrary);
+    mCrypto = AndroidConceal.get().createCrypto128Bits(keyChain);
     mData = new byte[CryptoTestUtils.NUM_DATA_BYTES];
   }
 
@@ -40,7 +41,7 @@ public class SimpleEncryptTest extends InstrumentationTestCase {
     byte[] aadData = CryptoSerializerHelper.computeBytesToAuthenticate(
         entity.getBytes(),
         VersionCodes.CIPHER_SERIALIZATION_VERSION,
-        VersionCodes.CIPHER_ID);
+        CryptoConfig.KEY_128.cipherId);
     BouncyCastleHelper.Result result = BouncyCastleHelper.bouncyCastleEncrypt(mData,
         mKey,
         mIV,
@@ -64,6 +65,9 @@ public class SimpleEncryptTest extends InstrumentationTestCase {
     assertTrue(CryptoTestUtils.ENCRYPTED_DATA_OF_DIFFERENT_LENGTH,
         encryptedData.length == mData.length);
     assertFalse(CryptoTestUtils.DATA_IS_NOT_ENCRYPTED, Arrays.equals(mData, encryptedData));
+
+    int metadataLength = cipherText.length - mData.length;
+    assertEquals(CryptoTestUtils.WRONG_METADATA_LENGTH, metadataLength, mCrypto.getCipherMetaDataLength());
   }
 
   public void testMatchesWithStreamingAPI() throws KeyChainException, CryptoInitializationException, IOException {
